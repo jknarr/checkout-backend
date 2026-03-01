@@ -1,5 +1,8 @@
 server:
-  port: 8080
+  port: 443
+  ssl:
+    certificate: "file:certs/auth.paze.com.pem"
+    certificate-private-key: "file:certs/auth.paze.com-key.pem"
 
 spring:
   application:

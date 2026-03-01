@@ -1,4 +1,5 @@
 .gradle/
 build/
 data/
+certs/
 !gradle/wrapper/gradle-wrapper.jar
