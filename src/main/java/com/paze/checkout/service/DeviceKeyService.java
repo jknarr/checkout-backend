@@ -38,11 +38,12 @@ public class DeviceKeyService {
     public String issueChallenge(UUID deviceId) {
         deviceRegistrationRepository.findById(deviceId)
                 .orElseThrow(() -> new DeviceVerificationException("Device not found: " + deviceId));
-        String challenge = Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(secureRandomBytes(32));
-        activeChallenges.put(deviceId, new ChallengeEntry(challenge,
-                Instant.now().plusSeconds(challengeExpirySeconds)));
-        return challenge;
+        return createAndStoreChallenge(deviceId);
+    }
+
+    public Optional<String> issueChallengeForUserDevice(UUID userId, UUID deviceId) {
+        return deviceRegistrationRepository.findByIdAndUserId(deviceId, userId)
+                .map(registration -> createAndStoreChallenge(registration.getId()));
     }
 
     @Transactional
@@ -80,6 +81,12 @@ public class DeviceKeyService {
     public UUID registerDevice(UUID userId, String publicKeyJwk) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+
+        // Enforce single device per user: replace any existing registration.
+        // This keeps the stored deviceId in the browser's localStorage consistent
+        // with the single public key on record.
+        deviceRegistrationRepository.deleteByUserId(userId);
+
         DeviceRegistration reg = DeviceRegistration.builder()
                 .user(user)
                 .publicKeyJwk(publicKeyJwk)
@@ -90,8 +97,16 @@ public class DeviceKeyService {
     }
 
     public Optional<UUID> getFirstDeviceId(UUID userId) {
-        List<DeviceRegistration> devices = deviceRegistrationRepository.findByUserId(userId);
+        List<DeviceRegistration> devices = deviceRegistrationRepository.findByUserIdOrderByCreatedAtDesc(userId);
         return devices.isEmpty() ? Optional.empty() : Optional.of(devices.get(0).getId());
+    }
+
+    private String createAndStoreChallenge(UUID deviceId) {
+        String challenge = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(secureRandomBytes(32));
+        activeChallenges.put(deviceId, new ChallengeEntry(challenge,
+                Instant.now().plusSeconds(challengeExpirySeconds)));
+        return challenge;
     }
 
     @SuppressWarnings("unchecked")

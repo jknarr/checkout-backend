@@ -33,7 +33,7 @@ paze:
     secret: "paze-dev-secret-change-in-prod-must-be-256-bits-long-abcdefghijklmno"
     expiry-minutes: 60
   device:
-    challenge-expiry-seconds: 60
+    challenge-expiry-seconds: 300
 
 logging:
   level:

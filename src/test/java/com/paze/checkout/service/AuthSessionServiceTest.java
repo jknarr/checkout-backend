@@ -76,7 +76,6 @@ class AuthSessionServiceTest {
         when(otpService.createChallenge(any())).thenReturn(challenge);
         when(otpService.isMockMode()).thenReturn(true);
         when(authSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(deviceKeyService.getFirstDeviceId(any())).thenReturn(Optional.empty());
 
         InitAuthResponse response = service.initAuth("+15551234567", checkoutSessionId);
 
@@ -104,12 +103,41 @@ class AuthSessionServiceTest {
         when(authSessionRepository.findById(authSessionId)).thenReturn(Optional.of(session));
         when(authSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(cardRepository.findByUserId(userId)).thenReturn(List.of());
-        when(deviceKeyService.getFirstDeviceId(userId)).thenReturn(Optional.empty());
 
         AuthActionResponse response = service.handleAction(authSessionId, req, null);
 
         assertEquals(AuthStep.CARD_SELECT, response.currentStep());
         verify(otpService).verify(challengeId, "+15551234567", "123456");
+    }
+
+    @Test
+    void handleAction_verifyOtp_withKnownDevice_issuesChallengeForThatDevice() {
+        UUID authSessionId = UUID.randomUUID();
+        UUID challengeId = UUID.randomUUID();
+        UUID knownDeviceId = UUID.randomUUID();
+
+        AuthSession session = AuthSession.builder()
+                .id(authSessionId)
+                .user(testUser)
+                .checkoutSessionId(checkoutSessionId)
+                .currentStep(AuthStep.OTP_VERIFY)
+                .deviceVerified(false)
+                .expiresAt(Instant.now().plusSeconds(1800))
+                .build();
+
+        AuthActionRequest req = new AuthActionRequest(
+                ActionType.VERIFY_OTP, challengeId, "123456",
+                knownDeviceId, null, null, null, null, null);
+
+        when(authSessionRepository.findById(authSessionId)).thenReturn(Optional.of(session));
+        when(authSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(cardRepository.findByUserId(userId)).thenReturn(List.of());
+        when(deviceKeyService.issueChallengeForUserDevice(userId, knownDeviceId)).thenReturn(Optional.of("challenge123"));
+
+        AuthActionResponse response = service.handleAction(authSessionId, req, null);
+
+        assertEquals(AuthStep.CARD_SELECT, response.currentStep());
+        assertEquals("challenge123", response.deviceChallenge());
     }
 
     @Test

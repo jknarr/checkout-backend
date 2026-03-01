@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -54,15 +53,9 @@ public class AuthSessionService {
                 .build();
         authSession = authSessionRepository.save(authSession);
 
-        String deviceChallenge = null;
-        Optional<UUID> firstDeviceId = deviceKeyService.getFirstDeviceId(user.getId());
-        if (firstDeviceId.isPresent()) {
-            deviceChallenge = deviceKeyService.issueChallenge(firstDeviceId.get());
-        }
-
         String otpCode = otpService.isMockMode() ? challenge.getCode() : null;
         return new InitAuthResponse(authSession.getId(), AuthStep.OTP_VERIFY,
-                challenge.getId(), otpCode, deviceChallenge);
+                challenge.getId(), otpCode, null);
     }
 
     @Transactional
@@ -92,9 +85,10 @@ public class AuthSessionService {
                 .stream().map(this::toCardResponse).collect(Collectors.toList());
 
         String deviceChallenge = null;
-        Optional<UUID> firstDeviceId = deviceKeyService.getFirstDeviceId(session.getUser().getId());
-        if (firstDeviceId.isPresent()) {
-            deviceChallenge = deviceKeyService.issueChallenge(firstDeviceId.get());
+        if (req.deviceId() != null) {
+            deviceChallenge = deviceKeyService
+                    .issueChallengeForUserDevice(session.getUser().getId(), req.deviceId())
+                    .orElse(null);
         }
 
         return new AuthActionResponse(AuthStep.CARD_SELECT, cards, null, null, null, null, null, deviceChallenge);
