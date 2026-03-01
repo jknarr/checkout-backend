@@ -20,7 +20,7 @@ spring:
 
 paze:
   cors:
-    allowed-origins: "http://localhost:5173,https://merchant.local:5173"
+    allowed-origins: "http://localhost:5173,https://merchant.local:5173,https://another-merchant.local:5174"
   session:
     expiry-minutes: 30
   otp:
