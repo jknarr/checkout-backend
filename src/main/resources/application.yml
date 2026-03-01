@@ -1,0 +1,37 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: checkout-backend
+  datasource:
+    url: jdbc:h2:mem:checkoutdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    open-in-view: false
+  h2:
+    console:
+      enabled: true
+
+paze:
+  cors:
+    allowed-origins: "http://localhost:5173,https://merchant.local:5173"
+  session:
+    expiry-minutes: 30
+  otp:
+    expiry-minutes: 10
+    mock-mode: true
+  jwt:
+    secret: "paze-dev-secret-change-in-prod-must-be-256-bits-long-abcdefghijklmno"
+    expiry-minutes: 60
+  device:
+    challenge-expiry-seconds: 60
+
+logging:
+  level:
+    com.paze.checkout: DEBUG
