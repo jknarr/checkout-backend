@@ -34,6 +34,11 @@ paze:
     expiry-minutes: 60
   device:
     challenge-expiry-seconds: 300
+  passkey:
+    rp-id: "auth.paze.com"
+    rp-name: "Paze Checkout"
+    origin: "https://auth.paze.com"
+    challenge-ttl-seconds: 120
 
 logging:
   level:

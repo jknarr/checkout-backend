@@ -36,6 +36,12 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("DEVICE_VERIFICATION_FAILED", ex.getMessage()));
     }
 
+    @ExceptionHandler(PasskeyException.class)
+    public ResponseEntity<ErrorResponse> handlePasskey(PasskeyException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ErrorResponse("PASSKEY_ERROR", ex.getMessage()));
+    }
+
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ErrorResponse> handleUnauthorized(UnauthorizedException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)

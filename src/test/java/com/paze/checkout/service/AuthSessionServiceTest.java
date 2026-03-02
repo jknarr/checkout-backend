@@ -35,6 +35,7 @@ class AuthSessionServiceTest {
     @Mock private OtpService otpService;
     @Mock private AuthTokenService authTokenService;
     @Mock private DeviceKeyService deviceKeyService;
+    @Mock private PasskeyService passkeyService;
     @Mock private BCryptPasswordEncoder bcrypt;
     @InjectMocks private AuthSessionService service;
 
@@ -55,8 +56,9 @@ class AuthSessionServiceTest {
                 .email("jane@example.com")
                 .build();
         service = new AuthSessionService(userRepository, cardRepository, shippingAddressRepository,
-                authSessionRepository, otpService, authTokenService, deviceKeyService,
+                authSessionRepository, otpService, authTokenService, deviceKeyService, passkeyService,
                 bcrypt, new ObjectMapper());
+        lenient().when(passkeyService.hasActivePasskey(any())).thenReturn(false);
         ReflectionTestUtils.setField(service, "sessionExpiryMinutes", 30);
     }
 
@@ -312,5 +314,60 @@ class AuthSessionServiceTest {
         when(bcrypt.matches("000", card.getCvvHash())).thenReturn(false);
 
         assertThrows(CvvInvalidException.class, () -> service.handleAction(authSessionId, req, null));
+    }
+
+    @Test
+    void handleAction_passkeyRegisterBegin_fromReview_returnsPasskeyRegisterStep() throws Exception {
+        UUID authSessionId = UUID.randomUUID();
+        AuthSession session = AuthSession.builder()
+                .id(authSessionId)
+                .user(testUser)
+                .checkoutSessionId(checkoutSessionId)
+                .currentStep(AuthStep.REVIEW)
+                .authToken("token")
+                .deviceVerified(false)
+                .expiresAt(Instant.now().plusSeconds(1800))
+                .build();
+
+        AuthActionRequest req = new AuthActionRequest(
+                ActionType.PASSKEY_REGISTER_BEGIN, null, null,
+                null, null, null, null, null, null
+        );
+
+        when(authSessionRepository.findById(authSessionId)).thenReturn(Optional.of(session));
+        when(authSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(passkeyService.beginRegistration(authSessionId, testUser))
+                .thenReturn(new ObjectMapper().readTree("{\"challenge\":\"abc\"}"));
+        when(authTokenService.validateToken("token")).thenReturn(userId);
+
+        AuthActionResponse response = service.handleAction(authSessionId, req, "token");
+
+        assertEquals(AuthStep.PASSKEY_REGISTER, response.currentStep());
+        assertNotNull(response.passkeyOptions());
+    }
+
+    @Test
+    void handleAction_passkeyAuthCancel_returnsOtpVerifyStep() {
+        UUID authSessionId = UUID.randomUUID();
+        AuthSession session = AuthSession.builder()
+                .id(authSessionId)
+                .user(testUser)
+                .checkoutSessionId(checkoutSessionId)
+                .currentStep(AuthStep.PASSKEY_AUTH)
+                .deviceVerified(false)
+                .expiresAt(Instant.now().plusSeconds(1800))
+                .build();
+
+        AuthActionRequest req = new AuthActionRequest(
+                ActionType.PASSKEY_AUTH_CANCEL, null, null,
+                null, null, null, null, null, null
+        );
+
+        when(authSessionRepository.findById(authSessionId)).thenReturn(Optional.of(session));
+        when(authSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AuthActionResponse response = service.handleAction(authSessionId, req, null);
+
+        assertEquals(AuthStep.OTP_VERIFY, response.currentStep());
     }
 }

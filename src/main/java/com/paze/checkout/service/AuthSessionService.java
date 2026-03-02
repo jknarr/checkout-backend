@@ -1,6 +1,7 @@
 package com.paze.checkout.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paze.checkout.domain.*;
 import com.paze.checkout.dto.request.AuthActionRequest;
@@ -31,6 +32,7 @@ public class AuthSessionService {
     private final OtpService otpService;
     private final AuthTokenService authTokenService;
     private final DeviceKeyService deviceKeyService;
+    private final PasskeyService passkeyService;
     private final BCryptPasswordEncoder bcrypt;
     private final ObjectMapper objectMapper;
 
@@ -54,8 +56,9 @@ public class AuthSessionService {
         authSession = authSessionRepository.save(authSession);
 
         String otpCode = otpService.isMockMode() ? challenge.getCode() : null;
+        boolean hasPasskey = passkeyService.hasActivePasskey(user.getId());
         return new InitAuthResponse(authSession.getId(), AuthStep.OTP_VERIFY,
-                challenge.getId(), otpCode, null);
+                challenge.getId(), otpCode, null, hasPasskey ? Boolean.TRUE : null);
     }
 
     @Transactional
@@ -70,6 +73,12 @@ public class AuthSessionService {
             case VERIFY_CVV      -> handleVerifyCvv(session, req);
             case CHANGE_CARD     -> handleChangeCard(session, token);
             case SELECT_SHIPPING -> handleSelectShipping(session, req, token);
+            case PASSKEY_REGISTER_BEGIN -> handlePasskeyRegisterBegin(session, token);
+            case PASSKEY_REGISTER_FINISH -> handlePasskeyRegisterFinish(session, req);
+            case PASSKEY_REGISTER_SKIP -> handlePasskeyRegisterSkip(session);
+            case PASSKEY_AUTH_BEGIN -> handlePasskeyAuthBegin(session);
+            case PASSKEY_AUTH_FINISH -> handlePasskeyAuthFinish(session, req);
+            case PASSKEY_AUTH_CANCEL -> handlePasskeyAuthCancel(session);
         };
     }
 
@@ -115,7 +124,7 @@ public class AuthSessionService {
         session.setAuthToken(authToken);
         session.setCurrentStep(AuthStep.REVIEW);
         authSessionRepository.save(session);
-        return buildReviewResponse(session, authToken);
+        return buildReviewResponse(session, authToken, true);
     }
 
     private AuthActionResponse handleSelectCard(AuthSession session, AuthActionRequest req) {
@@ -132,7 +141,7 @@ public class AuthSessionService {
         if (session.isDeviceVerified()) {
             session.setCurrentStep(AuthStep.REVIEW);
             authSessionRepository.save(session);
-            return buildReviewResponse(session, session.getAuthToken());
+            return buildReviewResponse(session, session.getAuthToken(), false);
         } else {
             session.setCurrentStep(AuthStep.CVV);
             authSessionRepository.save(session);
@@ -153,7 +162,7 @@ public class AuthSessionService {
         session.setAuthToken(authToken);
         session.setCurrentStep(AuthStep.REVIEW);
         authSessionRepository.save(session);
-        return buildReviewResponse(session, authToken);
+        return buildReviewResponse(session, authToken, true);
     }
 
     private AuthActionResponse handleChangeCard(AuthSession session, String token) {
@@ -193,10 +202,97 @@ public class AuthSessionService {
             }
         }
         authSessionRepository.save(session);
-        return buildReviewResponse(session, session.getAuthToken());
+        return buildReviewResponse(session, session.getAuthToken(), false);
     }
 
-    private AuthActionResponse buildReviewResponse(AuthSession session, String authToken) {
+    private AuthActionResponse handlePasskeyRegisterBegin(AuthSession session, String token) {
+        if (session.getCurrentStep() != AuthStep.REVIEW) {
+            throw new InvalidStepException("Expected REVIEW step for PASSKEY_REGISTER_BEGIN");
+        }
+        if (session.getAuthToken() == null) {
+            throw new UnauthorizedException("Must be authenticated before registering a passkey");
+        }
+        requireAuth(session, token);
+        JsonNode options = passkeyService.beginRegistration(session.getId(), session.getUser());
+        session.setCurrentStep(AuthStep.PASSKEY_REGISTER);
+        authSessionRepository.save(session);
+        return new AuthActionResponse(AuthStep.PASSKEY_REGISTER, null, session.getAuthToken(),
+                null, null, null, null, null, options, null);
+    }
+
+    private AuthActionResponse handlePasskeyRegisterFinish(AuthSession session, AuthActionRequest req) {
+        if (session.getCurrentStep() != AuthStep.PASSKEY_REGISTER) {
+            throw new InvalidStepException("Expected PASSKEY_REGISTER step");
+        }
+        if (req.passkeyResponse() == null || req.passkeyResponse().isBlank()) {
+            throw new InvalidStepException("passkeyResponse is required for PASSKEY_REGISTER_FINISH");
+        }
+        passkeyService.finishRegistration(session.getId(), session.getUser(), req.passkeyResponse());
+        session.setCurrentStep(AuthStep.REVIEW);
+        authSessionRepository.save(session);
+        return buildReviewResponse(session, session.getAuthToken(), false);
+    }
+
+    private AuthActionResponse handlePasskeyRegisterSkip(AuthSession session) {
+        if (session.getCurrentStep() != AuthStep.PASSKEY_REGISTER) {
+            throw new InvalidStepException("Expected PASSKEY_REGISTER step");
+        }
+        session.setCurrentStep(AuthStep.REVIEW);
+        authSessionRepository.save(session);
+        return buildReviewResponse(session, session.getAuthToken(), false);
+    }
+
+    private AuthActionResponse handlePasskeyAuthBegin(AuthSession session) {
+        if (session.getCurrentStep() != AuthStep.OTP_VERIFY) {
+            throw new InvalidStepException("Expected OTP_VERIFY step for PASSKEY_AUTH_BEGIN");
+        }
+        if (!passkeyService.hasActivePasskey(session.getUser().getId())) {
+            throw new InvalidStepException("No active passkey is registered for this account");
+        }
+        JsonNode options = passkeyService.beginAssertion(session.getId(), session.getUser());
+        session.setCurrentStep(AuthStep.PASSKEY_AUTH);
+        authSessionRepository.save(session);
+        return new AuthActionResponse(AuthStep.PASSKEY_AUTH, null, null,
+                null, null, null, null, null, options, null);
+    }
+
+    private AuthActionResponse handlePasskeyAuthFinish(AuthSession session, AuthActionRequest req) {
+        if (session.getCurrentStep() != AuthStep.PASSKEY_AUTH) {
+            throw new InvalidStepException("Expected PASSKEY_AUTH step");
+        }
+        if (req.passkeyResponse() == null || req.passkeyResponse().isBlank()) {
+            throw new InvalidStepException("passkeyResponse is required for PASSKEY_AUTH_FINISH");
+        }
+        UUID userId = passkeyService.finishAssertion(session.getId(), session.getUser(), req.passkeyResponse());
+        if (!userId.equals(session.getUser().getId())) {
+            throw new PasskeyException("Passkey user mismatch");
+        }
+
+        List<Card> cards = cardRepository.findByUserId(userId);
+        if (cards.isEmpty()) {
+            throw new InvalidStepException("No cards available for this user");
+        }
+
+        session.setSelectedCardId(cards.get(0).getId());
+        session.setDeviceVerified(true);
+        String authToken = authTokenService.generateToken(userId);
+        session.setAuthToken(authToken);
+        session.setCurrentStep(AuthStep.REVIEW);
+        authSessionRepository.save(session);
+        return buildReviewResponse(session, authToken, false);
+    }
+
+    private AuthActionResponse handlePasskeyAuthCancel(AuthSession session) {
+        if (session.getCurrentStep() != AuthStep.PASSKEY_AUTH) {
+            throw new InvalidStepException("Expected PASSKEY_AUTH step for PASSKEY_AUTH_CANCEL");
+        }
+        session.setCurrentStep(AuthStep.OTP_VERIFY);
+        authSessionRepository.save(session);
+        return new AuthActionResponse(AuthStep.OTP_VERIFY, null, null,
+                null, null, null, null, null, null, null);
+    }
+
+    private AuthActionResponse buildReviewResponse(AuthSession session, String authToken, boolean offerPasskeyIfEligible) {
         User user = session.getUser();
         UserProfileResponse userProfile = new UserProfileResponse(
                 user.getId(), user.getFirstName(), user.getLastName(),
@@ -227,8 +323,13 @@ public class AuthSessionService {
             authSessionRepository.save(session);
         }
 
+        boolean offerPasskey = offerPasskeyIfEligible
+                && session.getAuthToken() != null
+                && !passkeyService.hasActivePasskey(session.getUser().getId());
+
         return new AuthActionResponse(AuthStep.REVIEW, null, authToken, userProfile,
-                addresses, selectedCard, selectedAddress, null);
+                addresses, selectedCard, selectedAddress, null, null,
+                offerPasskey ? Boolean.TRUE : null);
     }
 
     private void requireAuth(AuthSession session, String token) {

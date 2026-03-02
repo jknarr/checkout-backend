@@ -19,5 +19,21 @@ public record AuthActionRequest(
     String cvv,
     // SELECT_SHIPPING
     UUID addressId,
-    Map<String, String> newAddress
-) {}
+    Map<String, String> newAddress,
+    // PASSKEY_REGISTER_FINISH / PASSKEY_AUTH_FINISH
+    String passkeyResponse
+) {
+    public AuthActionRequest(
+            @NotNull ActionType action,
+            UUID challengeId,
+            String otpCode,
+            UUID deviceId,
+            String signature,
+            UUID cardId,
+            String cvv,
+            UUID addressId,
+            Map<String, String> newAddress
+    ) {
+        this(action, challengeId, otpCode, deviceId, signature, cardId, cvv, addressId, newAddress, null);
+    }
+}

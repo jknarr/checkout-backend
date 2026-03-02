@@ -10,5 +10,16 @@ public record InitAuthResponse(
     AuthStep currentStep,
     UUID challengeId,
     String otpCode,
-    String deviceChallenge
-) {}
+    String deviceChallenge,
+    Boolean hasPasskey
+) {
+    public InitAuthResponse(
+            UUID authSessionId,
+            AuthStep currentStep,
+            UUID challengeId,
+            String otpCode,
+            String deviceChallenge
+    ) {
+        this(authSessionId, currentStep, challengeId, otpCode, deviceChallenge, null);
+    }
+}
