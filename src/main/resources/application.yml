@@ -1,8 +1,8 @@
 server:
   port: 443
   ssl:
-    certificate: "file:certs/auth.paze.com.pem"
-    certificate-private-key: "file:certs/auth.paze.com-key.pem"
+    certificate: "file:certs/auth.demo.com.pem"
+    certificate-private-key: "file:certs/auth.demo.com-key.pem"
 
 spring:
   application:
@@ -21,7 +21,7 @@ spring:
     console:
       enabled: true
 
-paze:
+demo:
   cors:
     allowed-origins: "http://localhost:5173,https://merchant.local:5173,https://another-merchant.local:5174"
   session:
@@ -30,16 +30,16 @@ paze:
     expiry-minutes: 10
     mock-mode: true
   jwt:
-    secret: "paze-dev-secret-change-in-prod-must-be-256-bits-long-abcdefghijklmno"
+    secret: "demo-dev-secret-change-in-prod-must-be-256-bits-long-abcdefghijklmno"
     expiry-minutes: 60
   device:
     challenge-expiry-seconds: 300
   passkey:
-    rp-id: "auth.paze.com"
-    rp-name: "Paze Checkout"
-    origin: "https://auth.paze.com"
+    rp-id: "auth.demo.com"
+    rp-name: "Demo Checkout"
+    origin: "https://auth.demo.com"
     challenge-ttl-seconds: 120
 
 logging:
   level:
-    com.paze.checkout: DEBUG
+    com.demo.checkout: DEBUG
